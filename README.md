@@ -23,7 +23,7 @@ Reinstall BabylonJS latest versions
 Running in development mode
 `npm run dev` // standard Vite server
 or
-`npm run dev-winows` // to use the self-signed certs on Windows
+`npm run dev-windows` // to use the self-signed certs on Windows
 or
 `npm run dev-mac` // to use the self-signed certs on macOS
 
