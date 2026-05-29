@@ -12,12 +12,17 @@ import "@babylonjs/loaders/glTF";
 //  FragmentOutput[FragmentOutputBlock] is not connected and is not optional.
 import "@babylonjs/core/Materials/Node/Blocks";
 
+// 导入 Pico 设备检测工具函数
+import { getDeviceInputProfile } from "~/utils/picoDeviceDetection";
+
 interface LabSceneOptions { // 场景配置项，所有字段都是可选的，用于定制场景功能；
   useCamera?: boolean;      // 是否创建默认相机
   useLights?: boolean;      // 是否创建默认灯光
-  useRoom?: boolean;        // 是否创建默认房间
+  useRoom?: boolean;        // 是否创建默认房间（仅用于测试/演示）
   useOverlay?: boolean;     // 是否创建默认覆盖层
   useWebXRPlayer?: boolean; // 是否创建默认WebXR玩家
+  usePicoDeviceDetection?: boolean; // 是否启用Pico设备检测（自动根据设备类型选择正确的控制器配置）
+  customFloorMeshRef?: Ref<GroundMesh | undefined>; // 自定义地面Mesh的响应式引用（业务场景使用）
 }
 
 // create a type that can be WebXRDefaultExperience or null
@@ -71,13 +76,15 @@ const createLabScene = (canvas: HTMLCanvasElement, createLabContent: (scene: Sce
   const defaultOptions: LabSceneOptions = {
     useCamera: true,
     useLights: true,
-    useRoom: true,
+    useRoom: true,  // 默认创建房间（仅用于测试/演示）
     useOverlay: true,
-    useWebXRPlayer: true
+    useWebXRPlayer: true,
+    usePicoDeviceDetection: false,  // 默认不启用 Pico 设备检测，保持向后兼容
+    customFloorMeshRef: undefined  // 默认无自定义地面
   };
   const mergedOptions = { ...defaultOptions, ...options };
 
-  // 3. 按需创建场景元素
+  // 3. 按需创建场景元素（相机、灯光、房间 - 可选）
   let teleportMeshes: GroundMesh[] = [];
   if (mergedOptions.useCamera) labCreateCamera(canvas, scene);
   if (mergedOptions.useRoom) teleportMeshes.push(labCreateRoom(scene));
@@ -87,13 +94,30 @@ const createLabScene = (canvas: HTMLCanvasElement, createLabContent: (scene: Sce
   if (mergedOptions.useOverlay) labCreateOverlay(scene, engine);
 
   // 5. 按需创建WebXR玩家（用于启用WebXR功能，依赖房间的地面用于瞬移功能）
+  // 注意：如果页面传入了自定义地面引用(customFloorMeshRef)，则先不创建XR，等页面创建完地面后再创建
   let xr: WebXRDefaultExperienceOrNull = null;
-  if (mergedOptions.useWebXRPlayer && teleportMeshes.length > 0) {
-    xr = labCreateWebXRPlayer(scene, teleportMeshes);
+  if (mergedOptions.useWebXRPlayer && teleportMeshes.length > 0 && !mergedOptions.customFloorMeshRef) {
+    // 没有自定义地面引用时，直接创建XR
+    xr = labCreateWebXRPlayer(scene, teleportMeshes, mergedOptions.usePicoDeviceDetection);
   }
 
   // 6. 调用外部回调函数创建场景内容，注入外部自定义内容
   createLabContent(scene, xr);
+
+  // 7. 如果页面传入了自定义地面引用，检查并使用该地面创建XR
+  if (mergedOptions.customFloorMeshRef && mergedOptions.useWebXRPlayer) {
+    const customFloor = mergedOptions.customFloorMeshRef.value;
+    if (customFloor) {
+      console.log(`[useCanvatoriumScene] Using custom floor mesh: ${customFloor.name}`);
+      xr = labCreateWebXRPlayer(scene, [customFloor], mergedOptions.usePicoDeviceDetection);
+    } else {
+      console.warn(`[useCanvatoriumScene] customFloorMeshRef.value is undefined, teleportation will not work`);
+    }
+  } else if (mergedOptions.useWebXRPlayer && !xr) {
+    // 如果没有地面但启用了WebXR，仍然创建XR（无瞬移功能）
+    console.warn(`[useCanvatoriumScene] WebXR enabled but no floor mesh available, teleportation will not work`);
+    xr = labCreateWebXRPlayer(scene, [], mergedOptions.usePicoDeviceDetection);
+  }
 
   // 8. 启动渲染循环
   engine.runRenderLoop(() => {
@@ -180,9 +204,16 @@ const labCreateLights = (scene: Scene) => {
 
 // 依赖房间的地面用于瞬移功能
 // 函数（创建WebXR玩家）：创建场景中的WebXR玩家，用于启用WebXR功能，依赖房间的地面用于瞬移功能
-const labCreateWebXRPlayer = async (scene: Scene, teleportMeshes: GroundMesh[]) => {
+const labCreateWebXRPlayer = async (scene: Scene, teleportMeshes: GroundMesh[], usePicoDeviceDetection?: boolean) => {
+  // 检测设备类型，获取对应的 Input Profile
+  const forceInputProfile = usePicoDeviceDetection ? getDeviceInputProfile() : undefined;
+  
   const xr = await scene.createDefaultXRExperienceAsync({
-    floorMeshes: teleportMeshes
+    floorMeshes: teleportMeshes,
+    inputOptions: {
+      customControllersRepositoryURL: "/webxr-profiles",  // 使用本地配置，避免网络问题
+      forceInputProfile  // 根据检测结果动态设置（非 Pico 设备为 undefined）
+    }
   });
 
   if (window) {

@@ -1,5 +1,6 @@
 <script lang="ts" setup>
-  import { Scene, Mesh, Color3, StandardMaterial, MeshBuilder, Vector3 } from "@babylonjs/core";
+  import { Scene, Mesh, Color3, StandardMaterial, MeshBuilder, Vector3, WebXRDefaultExperience } from "@babylonjs/core";
+  import { GUI3DManager, HolographicButton } from "@babylonjs/gui";
 
   definePageMeta({
     featured: false,
@@ -9,17 +10,9 @@
   });
 
   // 创建场景内容
-  const createLabContent = async (scene: Scene) => {
-    // 使用名称 'ground' 获取地面网格，用于玩家的传送点，这由组合函数中的labCreateRoom函数创建
-    const ground = scene.getMeshByName("ground") as Mesh;
-    console.log("ground", ground);
-    // 1. 创建默认的 XR 体验
-    // 2. 配置默认的 XR 体验，指定使用地面作为落地点
-    // 3. 监听玩家进入沉浸式模式时的事件，将玩家移动到紫色的落地点
-    // 4. 监听控制器输入事件，缩放盒子
-    const xr = await scene.createDefaultXRExperienceAsync({
-      floorMeshes: [ground]
-    });
+  const createLabContent = async (scene: Scene, xr: Promise<WebXRDefaultExperience> | null) => {
+    // 等待 XR 体验创建完成
+    const xrExperience = await xr;
 
     //1. 创建紫色的落地点，用于玩家的传送点
     const purple = new StandardMaterial("purple", scene);
@@ -30,13 +23,10 @@
     landing.material = purple;
 
     // 监听玩家进入沉浸式模式时的事件，将玩家移动到紫色的落地点
-    xr.baseExperience.onInitialXRPoseSetObservable.add((xrCamera) => {
-      console.log("Entering Immersive Mode with camera", xrCamera);
+    xrExperience?.baseExperience.onInitialXRPoseSetObservable.add((xrCamera) => {
       xrCamera.position.z = landing.position.z;
       xrCamera.position.x = landing.position.x;
     });
-
-    console.log("xr player created", xr);
 
     // Demo 2: Controller input. Scale these boxes with the triggers on the controllers
     //2. 创建两个盒子，用于演示控制器输入
@@ -50,13 +40,23 @@
     box2.position = new Vector3(2.5, 1, 5);
     box2.material = cyan;
 
+    // 2. 初始化3D GUI管理器
+    const gui3DManager = new GUI3DManager(scene);
+    const enterVRBtn = new HolographicButton("enterVRBtn");
+    enterVRBtn.text = "进入VR";
+    enterVRBtn.scaling = new Vector3(0.5, 0.5, 0.5);
+    enterVRBtn.position = new Vector3(3.5, 1, 5);
+    gui3DManager.addControl(enterVRBtn);
+
     //3. 监听控制器输入事件，缩放盒子
     // 1）当控制器被添加进来时
-    xr.input.onControllerAddedObservable.add((controller) => {
+    xrExperience?.input.onControllerAddedObservable.add((controller) => {
+      const ctrl = controller as any;
+
       // 2）监听其运动控制器初始化事件，等待控制器【真正初始化完成】
       controller.onMotionControllerInitObservable.add((motionController) => {
         // 3）现在控制器准备好了！可以绑定按键了！
-        if (motionController.handness === "left") { // 左手
+        if (motionController.handedness === "left") { // 左手
           const xr_ids = motionController.getComponentIds();
           let triggerComponent = motionController.getComponent(xr_ids[0]); //xr-standard-trigger
           triggerComponent.onButtonStateChangedObservable.add(() => {
@@ -67,7 +67,7 @@
             }
           });
         }
-        if (motionController.handness === "right") { // 右手
+        if (motionController.handedness === "right") { // 右手
           const xr_ids = motionController.getComponentIds();
           let triggerComponent = motionController.getComponent(xr_ids[0]); //xr-standard-trigger
           triggerComponent.onButtonStateChangedObservable.add(() => {
@@ -82,9 +82,9 @@
     });
   };
 
-  // Omit the scene options to use the default XR experience from useCanvatoriumScene
+  // 启用 Pico 设备检测，自动根据设备类型选择正确的控制器配置
   const labSceneOptions = {
-    useWebXRPlayer: false
+    usePicoDeviceDetection: true
   };
 
   const bjsCanvas = ref(null); // 画布元素的引用，开始是空的，还没拿到DOM，等模板渲染完成后自动变成真实的DOM

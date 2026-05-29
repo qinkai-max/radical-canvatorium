@@ -46,10 +46,13 @@
 
     return mesh;
   };
-
+  // 启用 Pico 设备检测，自动根据设备类型选择正确的控制器配置
+  const labSceneOptions = {
+    usePicoDeviceDetection: true
+  };
   const bjsCanvas = ref(null);
   // Without scene options (see lab001 for an example)
-  useCanvatoriumScene(bjsCanvas, createLabContent);
+  useCanvatoriumScene(bjsCanvas, createLabContent, labSceneOptions);
 </script>
 <template>
   <canvas id="bjsCanvas" ref="bjsCanvas"></canvas>
